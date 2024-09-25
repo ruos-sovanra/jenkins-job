@@ -4,6 +4,7 @@ import co.istad.jenkinsjob.jenkins.dto.BuildRequest;
 import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
 import com.offbytwo.jenkins.model.Build;
 import com.offbytwo.jenkins.model.BuildWithDetails;
+import com.offbytwo.jenkins.model.JobWithDetails;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,9 +13,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -90,6 +94,29 @@ public class JenkinsServiceImpl implements JenkinsService{
         return emitter;
     }
 
+    @Override
+    public void deleteJob(String jobName) throws IOException {
+        jenkinsRepository.deleteJob(jobName);
+    }
+
+    @Override
+    public List<String> getJobs() throws IOException {
+        return jenkinsRepository.getJobs();
+    }
+
+    @Override
+    public ArrayList<Integer> getAllBuildNumbersByJobName(String jobName) throws IOException {
+        JobWithDetails job = jenkinsRepository.getJob(jobName);
+
+        if (job == null) {
+            throw new IOException("Job not found: " + jobName);
+        }
+
+        return job.getBuilds().stream()
+                .map(Build::getNumber)
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
     private String getNewLogs(Build build, int lastReadPosition) throws IOException {
         String fullLog = build.details().getConsoleOutputText();
         if (lastReadPosition < fullLog.length()) {
@@ -147,15 +174,27 @@ public class JenkinsServiceImpl implements JenkinsService{
                         "        }\n" +
                         "        stage('Build') {\n" +
                         "            steps {\n" +
-                        "                sh 'docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .'\n" +
+                        "                sh \"docker build -t ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER} .\"\n" +
                         "            }\n" +
                         "        }\n" +
                         "        stage('Deploy') {\n" +
                         "            steps {\n" +
                         "                sh '''\n" +
-                        "                    docker stop ${CONTAINER_NAME} || true\n" +
-                        "                    docker rm ${CONTAINER_NAME} || true\n" +
-                        "                    docker run -d --name ${CONTAINER_NAME} -p ${DEPLOY_PORT}:3000 ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}\n" +
+                        "                    #!/bin/bash\n" +
+                        "                    # Check if the container is running and stop it\n" +
+                        "                    if [ $(docker ps -q -f name=${CONTAINER_NAME}) ]; then\n" +
+                        "                        echo \"Stopping running container ${CONTAINER_NAME}...\"\n" +
+                        "                        docker stop ${CONTAINER_NAME}\n" +
+                        "                    fi\n" +
+                        "\n" +
+                        "                    # Remove the container if it exists\n" +
+                        "                    if [ $(docker ps -a -q -f name=${CONTAINER_NAME}) ]; then\n" +
+                        "                        echo \"Removing container ${CONTAINER_NAME}...\"\n" +
+                        "                        docker rm ${CONTAINER_NAME}\n" +
+                        "                    fi\n" +
+                        "\n" +
+                        "                    # Start a new container\n" +
+                        "                    docker run -d --name ${CONTAINER_NAME} -p ${DEPLOY_PORT}:3000 ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}\n" +
                         "                '''\n" +
                         "            }\n" +
                         "        }\n" +

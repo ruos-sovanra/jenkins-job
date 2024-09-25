@@ -2,16 +2,14 @@ package co.istad.jenkinsjob.jenkins;
 
 import com.offbytwo.jenkins.JenkinsServer;
 import com.offbytwo.jenkins.client.JenkinsHttpClient;
-import com.offbytwo.jenkins.model.Build;
-import com.offbytwo.jenkins.model.JobWithDetails;
-import com.offbytwo.jenkins.model.QueueItem;
-import com.offbytwo.jenkins.model.QueueReference;
+import com.offbytwo.jenkins.model.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 import java.util.Map;
 
 @Repository
@@ -64,5 +62,16 @@ public class JenkinsRepository {
         return job.getBuildByNumber(buildNumber);
     }
 
+    public void deleteJob(String jobName) throws IOException {
+        jenkins.deleteJob(jobName, true);
+    }
+
+    public List<String> getJobs() throws IOException {
+        return jenkins.getJobs().values().stream().map(Job::getName).toList();
+    }
+
+    public JobWithDetails getJob(String jobName) throws IOException {
+        return jenkins.getJob(jobName);
+    }
 
 }
