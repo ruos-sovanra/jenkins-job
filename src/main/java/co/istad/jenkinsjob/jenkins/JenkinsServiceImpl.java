@@ -9,9 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 @RequiredArgsConstructor
@@ -19,7 +22,7 @@ public class JenkinsServiceImpl implements JenkinsService{
 
     private final JenkinsRepository jenkinsRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
-    private static final Logger logger = LoggerFactory.getLogger(JenkinsService.class);
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     public void createJob(PiplineDto piplineDto) throws Exception {
@@ -37,6 +40,8 @@ public class JenkinsServiceImpl implements JenkinsService{
        }
     }
 
+
+
     @Override
     public void streamBuildLog(String jobName, int buildNumber) throws IOException, InterruptedException {
         Build build = jenkinsRepository.getBuild(jobName, buildNumber);
@@ -50,6 +55,47 @@ public class JenkinsServiceImpl implements JenkinsService{
 
         // Print remaining log after build is complete
         System.out.print(buildWithDetails.getConsoleOutputText());
+    }
+
+    @Override
+    public SseEmitter streamLog(String jobName, int buildNumber) throws IOException, InterruptedException {
+        // Set the timeout to a longer duration, e.g., 30 minutes (1800000 milliseconds)
+        SseEmitter emitter = new SseEmitter(1800000L);
+        executor.execute(() -> {
+            try {
+                Build build = jenkinsRepository.getBuild(jobName, buildNumber);
+                int lastReadPosition = 0;
+
+                while (true) {
+                    String newLogs = getNewLogs(build, lastReadPosition);
+                    if (!newLogs.isEmpty()) {
+                        emitter.send(SseEmitter.event().data(newLogs));
+                        lastReadPosition += newLogs.length();
+                    }
+                    if (!build.details().isBuilding()) {
+                        break; // Exit loop if build is complete
+                    }
+                    Thread.sleep(1000);
+                }
+                // Send remaining logs and complete the emitter
+                String remainingLogs = getNewLogs(build, lastReadPosition);
+                if (!remainingLogs.isEmpty()) {
+                    emitter.send(SseEmitter.event().data(remainingLogs));
+                }
+                emitter.complete();
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
+
+    private String getNewLogs(Build build, int lastReadPosition) throws IOException {
+        String fullLog = build.details().getConsoleOutputText();
+        if (lastReadPosition < fullLog.length()) {
+            return fullLog.substring(lastReadPosition);
+        }
+        return "";
     }
 
 

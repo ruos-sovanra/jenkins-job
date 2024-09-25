@@ -5,6 +5,9 @@ import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/jenkins")
@@ -43,6 +46,11 @@ public class JenkinsController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Failed to stream logs");
         }
+    }
+
+    @GetMapping("/stream-build-log/{jobName}/{buildNumber}")
+    public SseEmitter streamBuildLog(@PathVariable String jobName, @PathVariable int buildNumber) throws IOException, InterruptedException {
+        return jenkinsService.streamLog(jobName, buildNumber);
     }
 
 }
