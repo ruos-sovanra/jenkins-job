@@ -2,9 +2,15 @@ package co.istad.jenkinsjob.jenkins;
 
 import co.istad.jenkinsjob.jenkins.dto.BuildRequest;
 import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
+import com.offbytwo.jenkins.model.Build;
+import com.offbytwo.jenkins.model.BuildWithDetails;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.Random;
 
 @Service
@@ -12,7 +18,8 @@ import java.util.Random;
 public class JenkinsServiceImpl implements JenkinsService{
 
     private final JenkinsRepository jenkinsRepository;
-
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private static final Logger logger = LoggerFactory.getLogger(JenkinsService.class);
 
     @Override
     public void createJob(PiplineDto piplineDto) throws Exception {
@@ -29,6 +36,22 @@ public class JenkinsServiceImpl implements JenkinsService{
            throw new Exception("Failed to start build", e);
        }
     }
+
+    @Override
+    public void streamBuildLog(String jobName, int buildNumber) throws IOException, InterruptedException {
+        Build build = jenkinsRepository.getBuild(jobName, buildNumber);
+        BuildWithDetails buildWithDetails = build.details();
+
+        while (buildWithDetails.isBuilding()) {
+            System.out.print(buildWithDetails.getConsoleOutputText());
+            Thread.sleep(2000); // Sleep for 2 seconds before fetching the log again
+            buildWithDetails = build.details(); // Refresh build details
+        }
+
+        // Print remaining log after build is complete
+        System.out.print(buildWithDetails.getConsoleOutputText());
+    }
+
 
     private String createJobConfig(PiplineDto piplineDto) {
         String pipelineScript = createPipelineScript(piplineDto);

@@ -2,6 +2,7 @@ package co.istad.jenkinsjob.jenkins;
 
 import com.offbytwo.jenkins.JenkinsServer;
 import com.offbytwo.jenkins.client.JenkinsHttpClient;
+import com.offbytwo.jenkins.model.Build;
 import com.offbytwo.jenkins.model.JobWithDetails;
 import com.offbytwo.jenkins.model.QueueItem;
 import com.offbytwo.jenkins.model.QueueReference;
@@ -51,6 +52,16 @@ public class JenkinsRepository {
         }
 
         return queueItem.getExecutable().getNumber().intValue();
+    }
+
+    public String getBuildLog(String jobName, int buildNumber) throws IOException {
+        JobWithDetails job = jenkins.getJob(jobName);
+        return job.getBuildByNumber(buildNumber).details().getConsoleOutputText();
+    }
+
+    public Build getBuild(String jobName, int buildNumber) throws IOException {
+        JobWithDetails job = jenkins.getJob(jobName);
+        return job.getBuildByNumber(buildNumber);
     }
 
 
