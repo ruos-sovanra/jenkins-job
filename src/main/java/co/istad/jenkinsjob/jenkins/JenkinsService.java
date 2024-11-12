@@ -1,7 +1,6 @@
 package co.istad.jenkinsjob.jenkins;
 
-import co.istad.jenkinsjob.jenkins.dto.BuildRequest;
-import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
+import co.istad.jenkinsjob.jenkins.dto.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -20,7 +19,14 @@ public interface JenkinsService {
 
     void deleteJob(String jobName) throws IOException;
 
-    List<String> getJobs() throws IOException;
+    List<JobResponse> getJobs() throws IOException;
 
     ArrayList<Integer> getAllBuildNumbersByJobName(String jobName) throws IOException;
+
+    JobResponse getJobsByJobName(String jobName) throws IOException;
+
+
+    List<BuildInfo> getBuildsInfo(String jobName) throws IOException;
+
+    PipelineInfo getPiplineInfo(String jobName) throws IOException;
 }

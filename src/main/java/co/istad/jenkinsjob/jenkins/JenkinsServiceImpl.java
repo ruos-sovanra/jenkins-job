@@ -1,13 +1,13 @@
 package co.istad.jenkinsjob.jenkins;
 
-import co.istad.jenkinsjob.jenkins.dto.BuildRequest;
-import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
+import co.istad.jenkinsjob.domain.Job;
+import co.istad.jenkinsjob.domainName.SubDomainNameService;
+import co.istad.jenkinsjob.jenkins.dto.*;
+import co.istad.jenkinsjob.mapper.JobMapper;
 import com.offbytwo.jenkins.model.Build;
 import com.offbytwo.jenkins.model.BuildWithDetails;
 import com.offbytwo.jenkins.model.JobWithDetails;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,12 +27,41 @@ public class JenkinsServiceImpl implements JenkinsService{
     private final JenkinsRepository jenkinsRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final SubDomainNameService subDomainNameService;
+    private final JobRepository jobRepository;
+    private final JobMapper jobMapper;
 
     @Override
     public void createJob(PiplineDto piplineDto) throws Exception {
+        try {
+            // Log the start of the job creation process
+            System.out.println("Starting job creation for: " + piplineDto.name());
 
-        String jobConfig = createJobConfig(piplineDto);
-        jenkinsRepository.createJob(piplineDto.name(), jobConfig);
+            // Create subdomain
+            subDomainNameService.createSubdomain(piplineDto.subdomain(), "146.190.89.57");
+            System.out.println("Subdomain created: " + piplineDto.subdomain());
+
+            // Create job configuration
+            String jobConfig = createJobConfig(piplineDto);
+            System.out.println("Job configuration created for: " + piplineDto.name());
+
+            // Create job in Jenkins
+            jenkinsRepository.createJob(piplineDto.name(), jobConfig);
+            System.out.println("Job created in Jenkins: " + piplineDto.name());
+
+            // Save job details to the repository
+            Job job = new Job();
+            job.setName(piplineDto.name());
+            job.setSubdomain(piplineDto.subdomain());
+            job.setGitUrl(piplineDto.gitUrl());
+            job.setBranch(piplineDto.branch());
+            jobRepository.save(job);
+            System.out.println("Job details saved to repository: " + piplineDto.name());
+        } catch (Exception e) {
+            // Log the exception
+            System.err.println("Failed to create job: " + e.getMessage());
+            throw new Exception("Failed to create job", e);
+        }
     }
 
     @Override
@@ -95,13 +124,26 @@ public class JenkinsServiceImpl implements JenkinsService{
     }
 
     @Override
-    public void deleteJob(String jobName) throws IOException {
-        jenkinsRepository.deleteJob(jobName);
+    public void deleteJob(String name) throws IOException {
+        try {
+            Job job = jobRepository.findByName(name);
+            if (job == null) {
+                throw new IOException("Job not found: " + name);
+            }
+            jobRepository.delete(job);
+            jenkinsRepository.deleteJob(name);
+            System.out.println("Job deleted successfully: " + name);
+        } catch (Exception e) {
+            System.err.println("Failed to delete job: " + e.getMessage());
+            throw new IOException("Failed to delete job: " + name, e);
+        }
     }
 
     @Override
-    public List<String> getJobs() throws IOException {
-        return jenkinsRepository.getJobs();
+    public List<JobResponse> getJobs() throws IOException {
+        List<Job> jobs = jobRepository.findAll();
+
+        return jobs.stream().map(jobMapper::toJobInfo).collect(Collectors.toList());
     }
 
     @Override
@@ -115,6 +157,28 @@ public class JenkinsServiceImpl implements JenkinsService{
         return job.getBuilds().stream()
                 .map(Build::getNumber)
                 .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    @Override
+    public JobResponse getJobsByJobName(String jobName) throws IOException {
+        Job job = jobRepository.findByName(jobName);
+
+        if (job == null) {
+            throw new IOException("Job not found: " + jobName);
+        }
+
+        return jobMapper.toJobInfo(job);
+    }
+
+    @Override
+    public List<BuildInfo> getBuildsInfo(String jobName) throws IOException {
+
+       return jenkinsRepository.getBuildsInfo(jobName);
+    }
+
+    @Override
+    public PipelineInfo getPiplineInfo(String jobName) throws IOException {
+        return jenkinsRepository.getPipelineInfo(jobName);
     }
 
     private String getNewLogs(Build build, int lastReadPosition) throws IOException {
@@ -135,14 +199,22 @@ public class JenkinsServiceImpl implements JenkinsService{
                         "  <keepDependencies>false</keepDependencies>\n" +
                         "  <properties>\n" +
                         "    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>\n" +
-                        "      <triggers/>\n" +
+                        "      <triggers>\n" +
+                        "        <com.cloudbees.jenkins.GitHubPushTrigger plugin=\"github@1.29.4\">\n" +
+                        "          <spec></spec>\n" +
+                        "        </com.cloudbees.jenkins.GitHubPushTrigger>\n" +
+                        "      </triggers>\n" +
                         "    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>\n" +
                         "  </properties>\n" +
                         "  <definition class=\"org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition\" plugin=\"workflow-cps@2.90\">\n" +
                         "    <script>%s</script>\n" +
                         "    <sandbox>true</sandbox>\n" +
                         "  </definition>\n" +
-                        "  <triggers/>\n" +
+                        "  <triggers>\n" +
+                        "    <com.cloudbees.jenkins.GitHubPushTrigger plugin=\"github@1.29.4\">\n" +
+                        "      <spec></spec>\n" +
+                        "    </com.cloudbees.jenkins.GitHubPushTrigger>\n" +
+                        "  </triggers>\n" +
                         "  <disabled>false</disabled>\n" +
                         "</flow-definition>",
                 piplineDto.name(),
@@ -150,13 +222,19 @@ public class JenkinsServiceImpl implements JenkinsService{
         );
     }
 
+
     private String createPipelineScript(PiplineDto pipelineRequest) {
         Random random = new Random();
         int randomPort = 3000 + random.nextInt(1000); // Random port between 3000 and 3999
         String containerName = pipelineRequest.name() + "-container";
+        String subDomain = pipelineRequest.subdomain().toLowerCase().replace(" ", "-");
+        String token = pipelineRequest.token();
+
+        System.out.println("Subdomain: " + subDomain);
 
         return String.format(
-                "pipeline {\n" +
+                "@Library('project-type-detect') _\n" +
+                        "pipeline {\n" +
                         "    agent any\n" +
                         "    environment {\n" +
                         "        GIT_REPO_URL = '%s'\n" +
@@ -165,6 +243,10 @@ public class JenkinsServiceImpl implements JenkinsService{
                         "        DOCKER_IMAGE_TAG = '${BUILD_NUMBER}'\n" +
                         "        DEPLOY_PORT = '%d'\n" +
                         "        CONTAINER_NAME = '%s'\n" +
+                        "        SUBDOMAIN = '%s'\n" +
+                        "        DOMAIN = 'psa-khmer.world'\n" +
+                        "        GITHUB_TOKEN = '%s'\n" +
+                        "        WEBHOOK_URL = 'https://jenkins.psa-khmer.world/github-webhook/'\n" +
                         "    }\n" +
                         "    stages {\n" +
                         "        stage('Checkout') {\n" +
@@ -172,30 +254,37 @@ public class JenkinsServiceImpl implements JenkinsService{
                         "                git branch: env.GIT_BRANCH, url: env.GIT_REPO_URL\n" +
                         "            }\n" +
                         "        }\n" +
+                        "        stage('Generate Dockerfile') {\n" +
+                        "            steps {\n" +
+                        "                script {\n" +
+                        "                    generateDockerfile(\"${env.WORKSPACE}\")\n" +
+                        "                }\n" +
+                        "            }\n" +
+                        "        }\n" +
                         "        stage('Build') {\n" +
                         "            steps {\n" +
-                        "                sh \"docker build -t ${DOCKER_IMAGE_NAME}:${env.BUILD_NUMBER} .\"\n" +
+                        "                sh \"docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .\"\n" +
                         "            }\n" +
                         "        }\n" +
                         "        stage('Deploy') {\n" +
                         "            steps {\n" +
-                        "                sh '''\n" +
-                        "                    #!/bin/bash\n" +
-                        "                    # Check if the container is running and stop it\n" +
-                        "                    if [ $(docker ps -q -f name=${CONTAINER_NAME}) ]; then\n" +
-                        "                        echo \"Stopping running container ${CONTAINER_NAME}...\"\n" +
-                        "                        docker stop ${CONTAINER_NAME}\n" +
-                        "                    fi\n" +
-                        "\n" +
-                        "                    # Remove the container if it exists\n" +
-                        "                    if [ $(docker ps -a -q -f name=${CONTAINER_NAME}) ]; then\n" +
-                        "                        echo \"Removing container ${CONTAINER_NAME}...\"\n" +
-                        "                        docker rm ${CONTAINER_NAME}\n" +
-                        "                    fi\n" +
-                        "\n" +
-                        "                    # Start a new container\n" +
-                        "                    docker run -d --name ${CONTAINER_NAME} -p ${DEPLOY_PORT}:3000 ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}\n" +
-                        "                '''\n" +
+                        "                script {\n" +
+                        "                    deployContainer(env.CONTAINER_NAME, env.DOCKER_IMAGE_NAME, env.DOCKER_IMAGE_TAG, env.DEPLOY_PORT)\n" +
+                        "                }\n" +
+                        "            }\n" +
+                        "        }\n" +
+                        "        stage('Configure Nginx and Certbot') {\n" +
+                        "            steps {\n" +
+                        "                script {\n" +
+                        "                    configureNginxAndCertbot(env.SUBDOMAIN, env.DOMAIN, env.DEPLOY_PORT)\n" +
+                        "                }\n" +
+                        "            }\n" +
+                        "        }\n" +
+                        "        stage('Configure GitHub Webhook') {\n" +
+                        "            steps {\n" +
+                        "                script {\n" +
+                        "                    createGitHubWebhook(env.GIT_REPO_URL, env.WEBHOOK_URL, env.GITHUB_TOKEN)\n" +
+                        "                }\n" +
                         "            }\n" +
                         "        }\n" +
                         "    }\n" +
@@ -204,7 +293,9 @@ public class JenkinsServiceImpl implements JenkinsService{
                 pipelineRequest.branch(),
                 pipelineRequest.name(),
                 randomPort,
-                containerName
+                containerName,
+                subDomain,
+                token
         );
     }
 }

@@ -1,7 +1,6 @@
 package co.istad.jenkinsjob.jenkins;
 
-import co.istad.jenkinsjob.jenkins.dto.BuildRequest;
-import co.istad.jenkinsjob.jenkins.dto.PiplineDto;
+import co.istad.jenkinsjob.jenkins.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -66,7 +65,7 @@ public class JenkinsController {
     }
 
     @GetMapping("/get-jobs")
-    public ResponseEntity<List<String>> getJobs() {
+    public ResponseEntity<List<JobResponse>> getJobs() {
         try {
             return ResponseEntity.ok(jenkinsService.getJobs());
         } catch (Exception e) {
@@ -83,6 +82,32 @@ public class JenkinsController {
         }
     }
 
+    @GetMapping("/get-job/{jobName}")
+    public ResponseEntity<JobResponse> getJob(@PathVariable String jobName) {
+        try {
+            return ResponseEntity.ok(jenkinsService.getJobsByJobName(jobName));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(null);
+        }
+    }
+
+    @GetMapping("/get-builds-info/{jobName}")
+    public ResponseEntity<List<BuildInfo>> getBuildsInfo(@PathVariable String jobName) {
+        try {
+            return ResponseEntity.ok(jenkinsService.getBuildsInfo(jobName));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(null);
+        }
+    }
+
+    @GetMapping("/get-pipeline-info/{jobName}")
+    public ResponseEntity<PipelineInfo> getPiplineInfo(@PathVariable String jobName) {
+        try {
+            return ResponseEntity.ok(jenkinsService.getPiplineInfo(jobName));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(null);
+        }
+    }
 
 
 }

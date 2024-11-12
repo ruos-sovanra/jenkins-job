@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: jenkins-job
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:3242/mbanking_prod
+    username: springdb
+    password: ITE2@2024
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+
+jenkins:
+  url: http://146.190.89.57:50001
+  username: asura
+  password: 11d2140b6459df5d77a22d76204adbd795
+
+  kafka:
+    streams:
+      bootstrap-servers: http://146.190.89.57:9092
+      application-id: jenkins-job
+      properties:
+        default:
+          key:
+            serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+          value:
+            serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        offset:
+          reset: earliest
+        commit:
+          interval:
+            ms: 100
+
+springdoc:
+  swagger-ui:
+    path: /swagger
+
+name:
+  com:
+    api:
+      token: 2654afc89abd16d01213a0fecadee55cded0ef7b
+      username: vannraruos@gmail.com
